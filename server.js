@@ -57,16 +57,16 @@ app.get("/api/login.json", function(req, res) {
   var email = req.query.email;
   var password_md5 = req.query.password_md5;
 
-  if (md5(password_md5) === md5('123pass')) {
+  if (password_md5 === md5('123456')) {
     data = {
-      "auth" : AUTH_KEY,
+      "token" : AUTH_KEY,
       "email" : email
     }
 
     res.status(200).json(data);
   }
   else {
-    handleError(res, "Invalid auth token", "Failed to get data.");
+    handleError(res, "Invalid password", "Failed to authenticate.");
     return;
   }
 });
