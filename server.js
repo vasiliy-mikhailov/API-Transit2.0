@@ -8,7 +8,7 @@ app.use(bodyParser.json());
 
 // Add headers
 app.use(function (req, res, next) {
-  var allowedOrigins = ['http://localhost:4200', 'http://demo.scrumail.com'];
+  var allowedOrigins = ['http://localhost:4200', 'http://demo.scrumai.com'];
   var origin = req.headers.origin;
   if(allowedOrigins.indexOf(origin) > -1){
     res.setHeader('Access-Control-Allow-Origin', origin);
