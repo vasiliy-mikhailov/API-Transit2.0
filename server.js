@@ -1,5 +1,7 @@
 var express = require("express");
 var bodyParser = require("body-parser");
+var md5 = require('md5');
+var loki = require('lokijs');
 
 var app = express();
 app.use(bodyParser.json());
@@ -9,6 +11,24 @@ var server = app.listen(process.env.PORT || 8080, function () {
   var port = server.address().port;
   console.log("App now running on port", port);
 });
+
+const AUTH_KEY='1234';
+
+var db = new loki();
+
+var in_files = db.addCollection("in_files");
+for (var i = 0; i < 50; i++) {
+  in_files.insert({file_date: new Date("2017-12-29 01:56:00"), file_name : i + ".xml"});
+}
+
+var out_files = db.addCollection("out_files");
+for (var i = 0; i < 50; i++) {
+  out_files.insert({file_date: new Date("2018-01-12 10:28:32"), file_name : i + ".xml"});
+}
+
+function isValidAuthKey(auth) {
+  return auth === AUTH_KEY;
+}
 
 // API ROUTES BELOW
 
@@ -23,68 +43,42 @@ function handleError(res, reason, message, code) {
  *    POST: creates a new contact
  */
 
+app.get("/api/login.json", function(req, res) {
+  var email = req.query.email;
+  var password_md5 = req.query.password_md5;
+
+  if (md5(password_md5) === md5('123pass')) {
+    data = {
+      "auth" : AUTH_KEY,
+      "email" : email
+    }
+
+    res.status(200).json(data);
+  }
+  else {
+    handleError(res, "Invalid auth token", "Failed to get data.");
+    return;
+  }
+});
+
 app.get("/api/in_files.json", function(req, res) {
-  const data =
-    [ {
-      "file_date" : "2017-13-29 19:19:33",
-      "file_name" : "1.xml"
-    }, {
-      "file_date" : "2017-12-28 18:18:39",
-      "file_name" : "2.xml"
-    }, {
-      "file_date" : "2017-12-28 18:18:40",
-      "file_name" : "3.xml"
-    } ];
+  var auth = req.query.auth;
 
+  if (!isValidAuthKey(auth)) {
+    handleError(res, "Invalid auth token", "Failed to get data.");
+    return;
+  }
 
-  res.status(200).json(data);
-
-  //   if (err) {
-  //     handleError(res, err.message, "Failed to get contacts.");
-  //   } else {
-  //
-  //   }
-  // });
+  res.status(200).json(in_files.find());
 });
 
 app.get("/api/out_files.json", function(req, res) {
-  const data =
-    [ {
-      "file_date" : "2017-12-28 18:28:32",
-      "file_name" : "a.xml"
-    }, {
-      "file_date" : "2017-12-28 18:28:38",
-      "file_name" : "b.xml"
-    }, {
-      "file_date" : "2017-12-28 18:28:40",
-      "file_name" : "c.xml"
-    } ];
+  var auth = req.query.auth;
 
+  if (!isValidAuthKey(auth)) {
+    handleError(res, "Invalid auth token", "Failed to get data.");
+    return;
+  }
 
-  res.status(200).json(data);
-
-  //   if (err) {
-  //     handleError(res, err.message, "Failed to get contacts.");
-  //   } else {
-  //
-  //   }
-  // });
-});
-
-app.post("/api/contacts", function(req, res) {
-});
-
-/*  "/api/contacts/:id"
- *    GET: find contact by id
- *    PUT: update contact by id
- *    DELETE: deletes contact by id
- */
-
-app.get("/api/contacts/:id", function(req, res) {
-});
-
-app.put("/api/contacts/:id", function(req, res) {
-});
-
-app.delete("/api/contacts/:id", function(req, res) {
+  res.status(200).json(out_files.find());
 });
