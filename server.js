@@ -32,6 +32,232 @@ var server = app.listen(process.env.PORT || 8080, function () {
   console.log("App now running on port", port);
 });
 
+// --- НАЧАЛО МЕТОДОВ API ---
+
+// Параметры методов API для сортировки и фильтрации
+//   filter            // фильтр, примененный к коллекции, например {"id" : 10} - поиск ID 10; {'Age': {'$gte':30}} - возраст больше 30; {'Height': {'$lte': 180}} - рост меньше 180
+//   compoundsort      // поля, по которым отсортирована коллекция, пример: ["name", ["date" : true]] - по возрастанию по имени, по убыванию по дате
+//   limit             // количество записей на странице
+//   offset            // смещение относительно начала коллекции в записях
+//   items             // объекты коллекции - всегда массив даже если одна запись
+//   total             // количество объектов в коллекции после применения фильтра, но до применения лимита
+
+// ValueObject - тип данных, возвращаемый всеми без исключения методами API, позволяет передать как сами объекты,
+// так и метаинформацию о них в основном для отрисовки в списках
+function newValueObject() {
+  var valueObject = {
+    code : 200,               // http-код (null - OK, остальное - ошибки)
+    error_message : null,     // текст сообщения об ошибке
+    filter : null,            // фильтр, примененный к коллекции, например {"id" : 10} - поиск ID 10; {'Age': {'$gte':30}} - возраст больше 30; {'Height': {'$lte': 180}} - рост меньше 180
+    compoundsort : null,      // поля, по которым отсортирована коллекция, пример: ["name", ["date" : true]] - по возрастанию по имени, по убыванию по дате
+    limit : 100,              // количество записей на странице
+    offset : 0,               // смещение относительно начала коллекции в записях
+    items : null,             // объекты коллекции - всегда массив даже если одна запись
+    total : null              // количество объектов в коллекции после применения фильтра, но до применения лимита
+  };
+
+  return valueObject;
+}
+
+// login.json - вход в систему
+// Параметры
+//   email: почта
+//   password_md5: md5-пароль
+// Результат
+//   valueObject - см описание valueObject
+//      .items[0].token - токен для передачи в последующие вызовы в качестве параметра auth
+//      .items[0].email - e-mail залогиненного пользователя
+app.get("/api/login.json", function(req, res) {
+  var email = req.query.email;
+  var password_md5 = req.query.password_md5;
+
+  if (password_md5 === md5('123456')) {
+    data = {
+      "token" : AUTH_KEY,
+      "email" : email
+    }
+
+    var valueObject = newValueObject();
+    valueObject.items = [data];
+    valueObject.total = 1;
+
+    res.status(200).json(valueObject);
+  }
+  else {
+    handleError(res, 401, "Invalid credentials");
+  }
+});
+
+// logout.json - выход из системы
+// Параметры
+//   auth: токен
+// Результат
+//   valueObject - см описание valueObject
+app.get("/api/logout.json", function(req, res) {
+  var auth = req.query.auth;
+
+  if (isValidAuthKey(auth)) {
+    var valueObject = newValueObject();
+    res.status(200).json(valueObject);
+  } else {
+    handleError(res, 401, "Invalid auth token");
+  }
+});
+
+// server_state.json - статус сервера
+// Параметры
+//   auth: токен
+// Результат
+//   valueObject - см описание valueObject
+//      .items[0].exchange_active - включен ли процесс транзита
+//      .items[0].errors_last - количество ошибок за последние 5 минут
+//      .items[0].hdd_free_space - свободное место на диске в гигабайтах
+//      .items[0].in_files_delay - зависшие входящие сообщения (по которым не было обновлений больше 5 минут)
+//      .items[0].out_files_delay - зависшие исходящие сообщения (по которым не было обновлений больше 5 минут)
+app.get("/api/server_state.json", function(req, res) {
+  var auth = req.query.auth;
+
+  if (isValidAuthKey(auth)) {
+    var valueObject = newValueObject();
+    valueObject.items = server_state.find({ id : 1});
+    res.status(200).json(valueObject);
+  } else {
+    handleError(res, 401, "Invalid credentials");
+  }
+});
+
+
+// PUT-метод (!)
+// exchange_active.json - задать статус сервера
+// Параметры
+//   auth: токен, передается в URL
+//   { exchange_active : true / false} - конструкция передается в теле запроса
+// Результат
+//   valueObject - см описание valueObject
+//      .items[0].exchange_active - включен ли процесс транзита
+app.put("/api/exchange_active.json", function(req, res) {
+  var auth = req.query.auth;
+
+  if (isValidAuthKey(auth)) {
+    var exchange_active = req.body.exchange_active;
+    server_state_object = server_state.find()[0];
+    server_state_object.exchange_active = exchange_active;
+
+    var valueObject = newValueObject();
+    valueObject.items = server_state_object;
+    valueObject.total = 1;
+    res.status(200).json(valueObject);
+  } else {
+    handleError(res, 401, "Invalid auth token");
+  }
+});
+
+// in_files.json - входящие файлы
+// Параметры
+//   auth: токен
+//   стандартный набор параметров для фильтрации, сортировки и пейджинга
+// Результат
+//   valueObject - см описание valueObject
+//      .items.file_name - название файла
+//      .items.file_date - дата файла
+app.get("/api/in_files.json", function(req, res) {
+  var auth = req.query.auth;
+
+  if (isValidAuthKey(auth)) {
+    var valueObject = collection_search(in_files, req)
+    res.status(200).json(valueObject);
+  } else {
+    handleError(res, 401, "Invalid auth token");
+  }
+});
+
+// out_files.json - исходящие файлы
+// Параметры
+//   auth: токен
+//   стандартный набор параметров для фильтрации, сортировки и пейджинга
+// Результат
+//   valueObject - см описание valueObject
+//      .items.file_name - название файла
+//      .items.file_date - дата файла
+app.get("/api/out_files.json", function(req, res) {
+  var auth = req.query.auth;
+
+  if (isValidAuthKey(auth)) {
+    var valueObject = collection_search(out_files, req)
+    res.status(200).json(valueObject);
+  } else {
+    handleError(res, 401, "Invalid auth token");
+  }
+});
+
+// iso_20022_messages.json - сообщения ISO 20022
+// Параметры
+//   auth: токен
+//   стандартный набор параметров для фильтрации, сортировки и пейджинга
+// Результат
+//   valueObject - см описание valueObject
+//       .items.id - идентификатор сообщения
+//       .items.description - описание
+//       .items.direction - входящий/исходящий
+//       .items.document - тело документа
+//       .items.recipient - получатель
+//       .items.recipient_destination - код подразделения в получателе
+//       .items.registered - дата и время регистрации
+//       .items.sender - отправитель
+//       .items.state - состояние документа
+//       .items.subject - тема документа
+//       .items.type - тип документа
+//       .items.linked_documents - связанные документы
+//           .linked_documents.id - идентификатор документа
+//           .linked_documents.direction - входящий / исходящий
+//           .linked_documents.registered - дата и время регистрации
+//           .linked_documents.sender - отправитель
+//           .linked_documents.state - состояние
+//           .linked_documents.type - тип документа
+app.get("/api/iso_20022_messages.json", function(req, res) {
+  var auth = req.query.auth;
+
+  if (isValidAuthKey(auth)) {
+    var valueObject = collection_search(iso_20022_messages, req)
+    res.status(200).json(valueObject);
+  } else {
+    handleError(res, 401, "Invalid auth token");
+  }
+});
+
+// free_format_messages.json - сообщения свободного формата
+// Параметры
+//   auth: токен
+//   стандартный набор параметров для фильтрации, сортировки и пейджинга
+// Результат
+//   valueObject - см описание valueObject
+//       .items.id - идентификатор сообщения
+//       .items.description - описание
+//       .items.direction - входящий/исходящий
+//       .items.recipient - получатель
+//       .items.registered - дата и время регистрации
+//       .items.sender - отправитель
+//       .items.state - состояние документа
+//       .items.subject - тема документа
+//       .items.type - тип документа
+//       .items.binary - тело документа
+//       .attachment - название файла документа
+//       .items.header - файл-заголовок документа
+app.get("/api/free_format_messages.json", function(req, res) {
+  var auth = req.query.auth;
+
+  if (isValidAuthKey(auth)) {
+    var valueObject = collection_search(free_format_messages, req)
+    res.status(200).json(valueObject);
+  } else {
+    handleError(res, 401, "Invalid auth token");
+  }
+});
+
+// ОКОНЧАНИЕ МЕТОДОВ API
+
+// вспомогательные методы
+
 const AUTH_KEY='1234';
 
 var db = new loki(); // ! заполнение тестовыми данными внизу
@@ -40,39 +266,25 @@ function isValidAuthKey(auth) {
   return auth === AUTH_KEY;
 }
 
-function newValueObject() {
-  var valueObject = {
-    code : 200,               // http-код (null - OK, остальное - ошибки)
-    error_message : null,     // сообщение об ошибке
-    filter : null,            // фильтр коллекции
-    simplesort : null,        // поле сортировки
-    limit : 100,              // записей на странице
-    offset : 0,               // смещение
-    items : null,             // объекты
-    total : null              // количество объектов
-  };
-
-  return valueObject;
-}
-
 function collection_search(collection, req) {
   var valueObject = newValueObject();
   valueObject.filter = req.query.filter ? req.query.filter : null;
-  valueObject.simplesort = req.query.simplesort ? req.query.simplesort : null;
+  valueObject.compoundsort = req.query.compoundsort ? req.query.compoundsort : null;
   valueObject.limit = req.query.limit ? req.query.limit : 100;
   valueObject.offset = req.query.offset ? req.query.offset : 0;
 
   query_chain = collection.chain();
 
   if (valueObject.filter) {
-    filterJson = JSON.parse(req.query.filter);
+    filterJson = JSON.parse(valueObject.filter);
     query_chain = query_chain.find(filterJson);
   };
 
   valueObject.total = query_chain.data().length;
 
-  if (valueObject.simplesort) {
-    query_chain = query_chain.simplesort(valueObject.simplesort);
+  if (valueObject.compoundsort) {
+    compoundsortJson = JSON.parse(valueObject.compoundsort)
+    query_chain = query_chain.compoundsort(valueObject.compoundsort);
   };
 
   if (valueObject.offset) {
@@ -101,124 +313,6 @@ function handleError(res, code, message) {
 
   res.status(valueObject.code).json(valueObject);
 }
-
-app.get("/api/login.json", function(req, res) {
-  var email = req.query.email;
-  var password_md5 = req.query.password_md5;
-
-  if (password_md5 === md5('123456')) {
-    data = {
-      "token" : AUTH_KEY,
-      "email" : email
-    }
-
-    var valueObject = newValueObject();
-    valueObject.items = [data];
-    valueObject.total = 1;
-
-    res.status(200).json(valueObject);
-  }
-  else {
-    handleError(res, 401, "Invalid credentials");
-  }
-});
-
-app.get("/api/logout.json", function(req, res) {
-  var auth = req.query.auth;
-
-  if (isValidAuthKey(auth)) {
-    var valueObject = newValueObject();
-    res.status(200).json(valueObject);
-  } else {
-    handleError(res, 401, "Invalid auth token");
-  }
-});
-
-app.get("/api/server_state.json", function(req, res) {
-  var auth = req.query.auth;
-
-  if (isValidAuthKey(auth)) {
-    var valueObject = newValueObject();
-    valueObject.items = server_state.find({ id : 1});
-    res.status(200).json(valueObject);
-  } else {
-    handleError(res, 401, "Invalid credentials");
-  }
-});
-
-app.get("/api/exchange_active.json", function(req, res) {
-  var auth = req.query.auth;
-
-  if (!isValidAuthKey(auth)) {
-    handleError(res, "Invalid auth token", "Failed to get data.");
-    return;
-  }
-
-  res.status(200).json(server_state.find({ id : 1})[0]);
-});
-
-app.put("/api/exchange_active.json", function(req, res) {
-  var auth = req.query.auth;
-
-  if (!isValidAuthKey(auth)) {
-    handleError(res, "Invalid auth token", "Failed to get data.");
-    return;
-  }
-
-  var exchange_active = req.body.exchange_active;
-  server_state_object = server_state.find({ id : 1})[0];
-  server_state_object.exchange_active = exchange_active;
-
-  var valueObject = newValueObject();
-  valueObject.items = server_state.find({ id : 1});
-  valueObject.total = 1;
-
-  res.status(200).json(valueObject);
-});
-
-app.get("/api/in_files.json", function(req, res) {
-  var auth = req.query.auth;
-
-  if (isValidAuthKey(auth)) {
-    var valueObject = collection_search(in_files, req)
-    res.status(200).json(valueObject);
-  } else {
-    handleError(res, 401, "Invalid auth token");
-  }
-});
-
-app.get("/api/out_files.json", function(req, res) {
-  var auth = req.query.auth;
-
-  if (isValidAuthKey(auth)) {
-    var valueObject = collection_search(out_files, req)
-    res.status(200).json(valueObject);
-  } else {
-    handleError(res, 401, "Invalid auth token");
-  }
-});
-
-app.get("/api/iso_20022_messages.json", function(req, res) {
-  var auth = req.query.auth;
-
-  if (isValidAuthKey(auth)) {
-    var valueObject = collection_search(iso_20022_messages, req)
-    res.status(200).json(valueObject);
-  } else {
-    handleError(res, 401, "Invalid auth token");
-  }
-});
-
-app.get("/api/free_format_messages.json", function(req, res) {
-  var auth = req.query.auth;
-
-  if (isValidAuthKey(auth)) {
-    var valueObject = collection_search(free_format_messages, req)
-    res.status(200).json(valueObject);
-  } else {
-    handleError(res, 401, "Invalid auth token");
-  }
-});
 
 // заполнение БД тестовыми данными
 
@@ -255,7 +349,7 @@ iso_20022_messages.insert(
     "registered" : "2017-12-28 18:20:40",
     "sender" : "ЕВРАЗ",
     "state" : "Отправляется",
-    "theme" : "Тема 1",
+    "subject" : "Тема 1",
     "type" : "auth.026"
   }, {
     "description" : "Описание 2",
@@ -289,7 +383,7 @@ iso_20022_messages.insert(
     "registered" : "2017-12-28 18:20:44",
     "sender" : "ЕВРАЗ",
     "state" : "Доставлено",
-    "theme" : "Тема 2",
+    "subject" : "Тема 2",
     "type" : "pain.001"
   }, {
     "description" : "Описание 3",
@@ -323,7 +417,7 @@ iso_20022_messages.insert(
     "registered" : "2017-12-28 18:20:52",
     "sender" : "ЕВРАЗ",
     "state" : "Отправляется",
-    "theme" : "Тема 3",
+    "subject" : "Тема 3",
     "type" : "auth.026"
   } ]
 );
@@ -341,7 +435,7 @@ free_format_messages.insert(
     "registered" : "2017-12-28 18:20:40",
     "sender" : "ЕВРАЗ",
     "state" : "Отправляется",
-    "theme" : "Тема 1",
+    "subject" : "Тема 1",
     "type" : "auth.026"
   }, {
     "attachment" : "file-1.xml",
@@ -354,7 +448,7 @@ free_format_messages.insert(
     "registered" : "2017-12-28 18:20:44",
     "sender" : "ЕВРАЗ",
     "state" : "Доставлено",
-    "theme" : "Тема 2",
+    "subject" : "Тема 2",
     "type" : "pain.001"
   }, {
     "attachment" : "test.out",
@@ -367,7 +461,7 @@ free_format_messages.insert(
     "registered" : "2017-12-28 18:20:52",
     "sender" : "ЕВРАЗ",
     "state" : "Отправляется",
-    "theme" : "Тема 3",
+    "subject" : "Тема 3",
     "type" : "auth.026"
   } ]
 );
