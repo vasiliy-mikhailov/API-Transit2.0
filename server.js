@@ -40,18 +40,67 @@ function isValidAuthKey(auth) {
   return auth === AUTH_KEY;
 }
 
+function newValueObject() {
+  var valueObject = {
+    code : 200,               // http-код (null - OK, остальное - ошибки)
+    error_message : null,     // сообщение об ошибке
+    filter : null,            // фильтр коллекции
+    simplesort : null,        // поле сортировки
+    limit : 100,              // записей на странице
+    offset : 0,               // смещение
+    items : null,             // объекты
+    total : null              // количество объектов
+  };
+
+  return valueObject;
+}
+
+function collection_search(collection, req) {
+  var valueObject = newValueObject();
+  valueObject.filter = req.query.filter ? req.query.filter : null;
+  valueObject.simplesort = req.query.simplesort ? req.query.simplesort : null;
+  valueObject.limit = req.query.limit ? req.query.limit : 100;
+  valueObject.offset = req.query.offset ? req.query.offset : 0;
+
+  query_chain = collection.chain();
+
+  if (valueObject.filter) {
+    filterJson = JSON.parse(req.query.filter);
+    query_chain = query_chain.find(filterJson);
+  };
+
+  valueObject.total = query_chain.data().length;
+
+  if (valueObject.simplesort) {
+    query_chain = query_chain.simplesort(valueObject.simplesort);
+  };
+
+  if (valueObject.offset) {
+    query_chain = query_chain.offset(valueObject.offset);
+  };
+
+  if (valueObject.limit) {
+    query_chain = query_chain.limit(valueObject.limit);
+  };
+
+  var items = query_chain.data();
+
+  valueObject.items = items;
+
+  return valueObject;
+}
+
 // API ROUTES BELOW
 
 // Generic error handler used by all endpoints.
-function handleError(res, reason, message, code) {
-  console.log("ERROR: " + reason);
-  res.status(code || 500).json({"error": message});
-}
+function handleError(res, code, message) {
+  var valueObject = newValueObject();
 
-/*  "/api/contacts"
- *    GET: finds all contacts
- *    POST: creates a new contact
- */
+  valueObject.code = code;
+  valueObject.error_message = "Invalid auth token";
+
+  res.status(valueObject.code).json(valueObject);
+}
 
 app.get("/api/login.json", function(req, res) {
   var email = req.query.email;
@@ -63,23 +112,38 @@ app.get("/api/login.json", function(req, res) {
       "email" : email
     }
 
-    res.status(200).json(data);
+    var valueObject = newValueObject();
+    valueObject.items = [data];
+    valueObject.total = 1;
+
+    res.status(200).json(valueObject);
   }
   else {
-    handleError(res, "Invalid password", "Failed to authenticate.");
-    return;
+    handleError(res, 401, "Invalid credentials");
+  }
+});
+
+app.get("/api/logout.json", function(req, res) {
+  var auth = req.query.auth;
+
+  if (isValidAuthKey(auth)) {
+    var valueObject = newValueObject();
+    res.status(200).json(valueObject);
+  } else {
+    handleError(res, 401, "Invalid auth token");
   }
 });
 
 app.get("/api/server_state.json", function(req, res) {
   var auth = req.query.auth;
 
-  if (!isValidAuthKey(auth)) {
-    handleError(res, "Invalid auth token", "Failed to get data.");
-    return;
+  if (isValidAuthKey(auth)) {
+    var valueObject = newValueObject();
+    valueObject.items = server_state.find({ id : 1});
+    res.status(200).json(valueObject);
+  } else {
+    handleError(res, 401, "Invalid credentials");
   }
-
-  res.status(200).json(server_state.find({ id : 1})[0]);
 });
 
 app.get("/api/exchange_active.json", function(req, res) {
@@ -105,55 +169,55 @@ app.put("/api/exchange_active.json", function(req, res) {
   server_state_object = server_state.find({ id : 1})[0];
   server_state_object.exchange_active = exchange_active;
 
-  res.status(200).json(server_state.find({ id : 1})[0]);
+  var valueObject = newValueObject();
+  valueObject.items = server_state.find({ id : 1});
+  valueObject.total = 1;
+
+  res.status(200).json(valueObject);
 });
 
 app.get("/api/in_files.json", function(req, res) {
   var auth = req.query.auth;
 
-  if (!isValidAuthKey(auth)) {
-    handleError(res, "Invalid auth token", "Failed to get data.");
-    return;
+  if (isValidAuthKey(auth)) {
+    var valueObject = collection_search(in_files, req)
+    res.status(200).json(valueObject);
+  } else {
+    handleError(res, 401, "Invalid auth token");
   }
-
-  res.status(200).json(in_files.find());
 });
 
 app.get("/api/out_files.json", function(req, res) {
   var auth = req.query.auth;
 
-  if (!isValidAuthKey(auth)) {
-    handleError(res, "Invalid auth token", "Failed to get data.");
-    return;
+  if (isValidAuthKey(auth)) {
+    var valueObject = collection_search(out_files, req)
+    res.status(200).json(valueObject);
+  } else {
+    handleError(res, 401, "Invalid auth token");
   }
-
-  res.status(200).json(out_files.find());
 });
 
 app.get("/api/iso_20022_messages.json", function(req, res) {
   var auth = req.query.auth;
 
-  if (!isValidAuthKey(auth)) {
-    handleError(res, "Invalid auth token", "Failed to get data.");
-    return;
+  if (isValidAuthKey(auth)) {
+    var valueObject = collection_search(iso_20022_messages, req)
+    res.status(200).json(valueObject);
+  } else {
+    handleError(res, 401, "Invalid auth token");
   }
-
-  var filter = req.query.filter ? JSON.parse(req.query.filter) : "";
-
-  res.status(200).json(iso_20022_messages.find(filter));
 });
 
 app.get("/api/free_format_messages.json", function(req, res) {
   var auth = req.query.auth;
 
-  if (!isValidAuthKey(auth)) {
-    handleError(res, "Invalid auth token", "Failed to get data.");
-    return;
+  if (isValidAuthKey(auth)) {
+    var valueObject = collection_search(free_format_messages, req)
+    res.status(200).json(valueObject);
+  } else {
+    handleError(res, 401, "Invalid auth token");
   }
-
-  var filter = req.query.filter ? JSON.parse(req.query.filter) : "";
-
-  res.status(200).json(free_format_messages.find(filter));
 });
 
 // заполнение БД тестовыми данными
